@@ -162,6 +162,10 @@ The latest header pass explicitly sets `Ledger`, `Rewards guide`, and `Support` 
 
 The repository history is organized into focused feature commits covering setup, persistence, APIs, public UI, authenticated UI, styling, overrides, and required documentation.
 
+## Feature status
+
+Implemented: persistent SQLite database, REST APIs, registration/login, admin/staff/member roles, member points portal, search, pagination, sorting in both directions, purchase earning, redemption, Bronze/Silver/Gold/Platinum tiers, 90-day expiry through `/clock`, tier notifications through `/outbox`, public Home/About/Rewards/Contact pages, authenticated Rewards/Support pages, interactive toasts, responsive UI, contact footer, and 11 focused GitHub commits. Backend and frontend diagnostics are clean; full temporary-server HTTP twist testing remains limited by the environment's Node 24/`better-sqlite3` native cleanup assertion.
+
 Public navigation now includes separate Home, About, Rewards guide, and Contact views. Each view keeps the shared header and interactive footer visible, uses a sliding page transition, and has larger body/form text for readability. Contact includes a local feedback form; it confirms the message in the UI without pretending to send email from the server.
 
 ## Roles and member portal

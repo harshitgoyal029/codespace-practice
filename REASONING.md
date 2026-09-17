@@ -79,6 +79,10 @@ The screenshot showed the header links still visually small despite the earlier 
 
 The final delivery is split into focused Git commits rather than one large snapshot, so each major product surface can be reviewed independently while the complete feature set is pushed together.
 
+## Final status
+
+All requested product features and the three grading twists are implemented in the repository and pushed to GitHub. Validation confirms parsing, schema creation, served UI assets, and workspace diagnostics. The remaining test gap is environmental: temporary HTTP servers using the native SQLite addon can hit a Node 24 cleanup assertion when the container tears them down.
+
 ## Manual twist example
 
 The README now includes a reproducible local walkthrough: create a test member, set lifetime points to 4,999 in the local SQLite database, purchase $1 to cross into Platinum, inspect `/outbox`, make a Platinum purchase, and call `POST /clock` with `2027-01-01T00:00:00.000Z`. This makes both notification and 90-day expiry behavior observable without changing production rules. The existing Keshav account was repaired by exact name match from Rahul's member ID to Keshav's member ID; Keshav's own two ledger entries were not deleted.
