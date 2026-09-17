@@ -1,15 +1,25 @@
 const path = require('path');
 const express = require('express');
-const Database = require('better-sqlite3');
+const { DatabaseSync } = require('node:sqlite');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'perk-counter-development-secret';
-const db = new Database(process.env.DB_FILE || path.join(__dirname, 'perk-counter.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const db = new DatabaseSync(process.env.DB_FILE || path.join(__dirname, 'perk-counter.db'));
+db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+function transaction(callback) {
+  db.exec('BEGIN');
+  try {
+    const result = callback();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS staff_users (
@@ -143,7 +153,7 @@ function seedDemoMembers(staffId) {
   ];
   const insertMember = db.prepare('INSERT INTO members (name, phone, email, points_balance, lifetime_points) VALUES (?, ?, ?, ?, ?)');
   const insertTransaction = db.prepare('INSERT INTO transactions (member_id, staff_id, type, points, amount_cents, note) VALUES (?, ?, \'purchase\', ?, ?, ?)');
-  const seed = db.transaction(() => demoMembers.forEach(([name, phone, email, balance, lifetime]) => {
+  const seed = transaction(() => demoMembers.forEach(([name, phone, email, balance, lifetime]) => {
     const result = insertMember.run(name, phone, email, balance, lifetime);
     insertTransaction.run(result.lastInsertRowid, staffId, lifetime, lifetime * 100, 'Opening balance imported for demo');
   }));
@@ -182,7 +192,7 @@ app.post('/clock', (req, res) => {
   const requested = req.body?.now ? new Date(req.body.now) : new Date();
   if (Number.isNaN(requested.getTime())) return res.status(400).json({ error: 'now must be a valid ISO date.' });
   const now = clockSql(requested);
-  const expire = db.transaction(() => {
+  const expire = transaction(() => {
     const lots = db.prepare('SELECT member_id, SUM(points_remaining) AS points FROM point_lots WHERE points_remaining > 0 AND expires_at <= ? GROUP BY member_id').all(now);
     let expired = 0;
     for (const lot of lots) {
@@ -242,14 +252,13 @@ app.post('/api/members/:id/purchases', auth, (req, res) => {
   const beforeTier = tierFor(member.lifetime_points);
   const points = beforeTier.multiplier < 1 ? Number((amountCents / 100 * beforeTier.multiplier).toFixed(2)) : Math.floor(amountCents / 100) * beforeTier.multiplier;
   if (points <= 0) return res.status(400).json({ error: 'Purchase is too small to earn points at this tier.' });
-  const transact = db.transaction(() => {
+  transaction(() => {
     db.prepare('UPDATE members SET points_balance = points_balance + ?, lifetime_points = lifetime_points + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(points, points, member.id);
     db.prepare('INSERT INTO transactions (member_id, staff_id, type, points, amount_cents, note) VALUES (?, ?, \'purchase\', ?, ?, ?)').run(member.id, req.user.id, points, amountCents, req.body.note?.trim() || null);
     db.prepare('INSERT INTO point_lots (member_id, points_remaining, expires_at) VALUES (?, ?, datetime(\'now\', \'+90 days\'))').run(member.id, points);
     const afterLifetime = member.lifetime_points + points;
     if (tierCrossed(member.lifetime_points, afterLifetime)) notificationService.tierCrossed(member.id, beforeTier.name, tierFor(afterLifetime).name);
   });
-  transact();
   res.status(201).json({ member: memberView(getMember(member.id)), earned: points });
 });
 
@@ -260,7 +269,7 @@ app.post('/api/members/:id/redemptions', auth, (req, res) => {
   const member = getMember(req.params.id);
   if (!member) return res.status(404).json({ error: 'Member not found.' });
   if (member.points_balance < reward.cost) return res.status(400).json({ error: `This reward needs ${reward.cost} points. The member has ${member.points_balance}.` });
-  const transact = db.transaction(() => {
+  transaction(() => {
     const result = db.prepare('UPDATE members SET points_balance = points_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND points_balance >= ?').run(reward.cost, member.id, reward.cost);
     if (!result.changes) throw new Error('INSUFFICIENT_POINTS');
     let remaining = reward.cost;
@@ -273,7 +282,7 @@ app.post('/api/members/:id/redemptions', auth, (req, res) => {
     }
     db.prepare('INSERT INTO transactions (member_id, staff_id, type, points, reward_name, note) VALUES (?, ?, \'redemption\', ?, ?, ?)').run(member.id, req.user.id, -reward.cost, reward.name, req.body.note?.trim() || null);
   });
-  try { transact(); res.status(201).json({ member: memberView(getMember(member.id)), redeemed: reward }); }
+  try { res.status(201).json({ member: memberView(getMember(member.id)), redeemed: reward }); }
   catch (error) { res.status(400).json({ error: error.message === 'INSUFFICIENT_POINTS' ? 'Points changed before this redemption completed. Please try again.' : 'Could not redeem reward.' }); }
 });
 
@@ -291,7 +300,7 @@ backfillPointLots();
 app.listen(PORT, () => console.log(`Perk Counter running at http://localhost:${PORT}`));
 
 function closeDatabase() {
-  if (db.open) db.close();
+  db.close();
 }
 process.once('SIGINT', () => { closeDatabase(); process.exit(0); });
 process.once('SIGTERM', () => { closeDatabase(); process.exit(0); });
