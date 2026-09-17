@@ -83,6 +83,16 @@ The final delivery is split into focused Git commits rather than one large snaps
 
 All requested product features and the three grading twists are implemented in the repository and pushed to GitHub. Validation confirms parsing, schema creation, served UI assets, and workspace diagnostics. The remaining test gap is environmental: temporary HTTP servers using the native SQLite addon can hit a Node 24 cleanup assertion when the container tears them down.
 
+## Limitation resolved
+
+The native cleanup assertion was fixed at the root by replacing `better-sqlite3` with Node 24's built-in `node:sqlite` `DatabaseSync`. The existing SQLite file, schema, prepared statements, explicit transaction wrapper, and shutdown handling were preserved. A live end-to-end check passed login, member creation, purchase, expiry clock, notification outbox, and sorted pagination, then the persistent server was terminated cleanly. No final commit was created for this fix; it remains ready for the user's final commit.
+
 ## Manual twist example
 
 The README now includes a reproducible local walkthrough: create a test member, set lifetime points to 4,999 in the local SQLite database, purchase $1 to cross into Platinum, inspect `/outbox`, make a Platinum purchase, and call `POST /clock` with `2027-01-01T00:00:00.000Z`. This makes both notification and 90-day expiry behavior observable without changing production rules. The existing Keshav account was repaired by exact name match from Rahul's member ID to Keshav's member ID; Keshav's own two ledger entries were not deleted.
+
+The expiry walkthrough now copies the database to `/tmp/perk-counter-test.db` and runs on port 3010. A prior validation accidentally called the 2099 clock against the live database, which correctly expired every active lot and made the UI show zero; balances were restored from the immutable transaction ledger and fresh lots were recreated. The production expiry behavior itself remains unchanged.
+
+## Final commit
+
+The project is complete. The last changes are split into three commits: the built-in SQLite runtime migration, the README/test-data safety update, and the reasoning/AI log update. After these commits are pushed, the repository is ready for final review.
