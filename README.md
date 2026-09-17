@@ -98,33 +98,37 @@ The browser controls use one listener per action; the stale pre-role listener bl
 
 ## Test Platinum, notifications, and expiry
 
-Use these commands against a running local server. Replace `TOKEN` with the token returned by staff login and replace `ID` with the new member ID.
+Use these commands against an isolated test database, not the live development database. Replace `TOKEN` with the token returned by staff login and replace `ID` with the new member ID.
 
 ```bash
+# 0. Start a disposable test database in another terminal
+cp perk-counter.db /tmp/perk-counter-test.db
+DB_FILE=/tmp/perk-counter-test.db PORT=3010 npm start
+
 # 1. Create an empty test member
-curl -X POST http://localhost:3000/api/members \
+curl -X POST http://localhost:3010/api/members \
 	-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 	-d '{"name":"Twist Test","phone":"5550199000"}'
 
 # 2. Put that test member one point below Platinum (local test database only)
-sqlite3 perk-counter.db "UPDATE members SET lifetime_points=4999, points_balance=0 WHERE id=ID;"
+sqlite3 /tmp/perk-counter-test.db "UPDATE members SET lifetime_points=4999, points_balance=0 WHERE id=ID;"
 
 # 3. This purchase crosses into Platinum and writes tier.crossed to the outbox
-curl -X POST http://localhost:3000/api/members/ID/purchases \
+curl -X POST http://localhost:3010/api/members/ID/purchases \
 	-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 	-d '{"amount":1}'
-curl http://localhost:3000/outbox
+curl http://localhost:3010/outbox
 
 # 4. A Platinum purchase earns 0.3 points per dollar/rupee unit
-curl -X POST http://localhost:3000/api/members/ID/purchases \
+curl -X POST http://localhost:3010/api/members/ID/purchases \
 	-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 	-d '{"amount":100}'
 
 # 5. Move the clock beyond 90 days and expire the unused lots
-curl -X POST http://localhost:3000/clock \
+curl -X POST http://localhost:3010/clock \
 	-H "Content-Type: application/json" \
 	-d '{"now":"2027-01-01T00:00:00.000Z"}'
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/members/ID
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3010/api/members/ID
 ```
 
 The clock response reports expired member and point totals. Calling it again with the same timestamp is idempotent because expired lots have zero remaining points. The local Keshav account was also repaired to point to Keshav's member record rather than Rahul's; Keshav's own history is kept intact.
@@ -164,7 +168,9 @@ The repository history is organized into focused feature commits covering setup,
 
 ## Feature status
 
-Implemented: persistent SQLite database, REST APIs, registration/login, admin/staff/member roles, member points portal, search, pagination, sorting in both directions, purchase earning, redemption, Bronze/Silver/Gold/Platinum tiers, 90-day expiry through `/clock`, tier notifications through `/outbox`, public Home/About/Rewards/Contact pages, authenticated Rewards/Support pages, interactive toasts, responsive UI, contact footer, and 11 focused GitHub commits. Backend and frontend diagnostics are clean; full temporary-server HTTP twist testing remains limited by the environment's Node 24/`better-sqlite3` native cleanup assertion.
+Implemented: persistent SQLite database, REST APIs, registration/login, admin/staff/member roles, member points portal, search, pagination, sorting in both directions, purchase earning, redemption, Bronze/Silver/Gold/Platinum tiers, 90-day expiry through `/clock`, tier notifications through `/outbox`, public Home/About/Rewards/Contact pages, authenticated Rewards/Support pages, interactive toasts, responsive UI, contact footer, and focused GitHub commits. Backend, frontend, and live Node 24 runtime diagnostics are clean.
+
+The runtime limitation is now resolved. The server uses Node 24's built-in `node:sqlite` API instead of `better-sqlite3`, and explicit transactions plus graceful shutdown are retained. A live Node 24 check passed login, member creation, purchase, `POST /clock`, `GET /outbox`, and sorted pagination, followed by clean process termination.
 
 Public navigation now includes separate Home, About, Rewards guide, and Contact views. Each view keeps the shared header and interactive footer visible, uses a sliding page transition, and has larger body/form text for readability. Contact includes a local feedback form; it confirms the message in the UI without pretending to send email from the server.
 
